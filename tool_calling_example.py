@@ -22,10 +22,10 @@ load_dotenv()
 
 client = OpenAI(
     api_key=os.environ["DEEPSEEK_API_KEY"],
-    base_url="https://api.deepseek.com",
+    base_url=os.environ["BASE_URL"],
 )
 
-MODEL = "deepseek-flash"
+MODEL = os.environ.get("MODEL", "deepseek-flash")
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ MODEL = "deepseek-flash"
 def get_weather(city: str) -> dict:
     """Simula uma consulta de clima. Em produção, chamaria uma API real."""
     fake_db = {
-        "sao paulo": {"temperatura_c": 24, "condicao": "nublado"},
+        "são paulo": {"temperatura_c": 24, "condicao": "nublado"},
         "rio de janeiro": {"temperatura_c": 30, "condicao": "ensolarado"},
         "curitiba": {"temperatura_c": 15, "condicao": "chuvoso"},
     }
@@ -76,36 +76,14 @@ def send_message(messages: list) -> str:
 
     `messages` é atualizado in-place, preservando o histórico da conversa
     (inclusive as chamadas de tool) para as próximas interações.
+
+    Importante: nunca guardamos o objeto de resposta do SDK diretamente em
+    `messages`. Ele traz campos extras do SDK/provedor (ex: `refusal`,
+    `reasoning_content`) que não fazem parte do formato de mensagem esperado
+    de volta pela API. Por isso, normalizamos cada resposta do assistente em
+    um dict simples, com apenas os campos que a API espera receber de volta.
     """
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=messages,
-        tools=TOOLS_SCHEMA,
-        tool_choice="auto",
-    )
-    assistant_message = response.choices[0].message
-    messages.append(assistant_message)
-
-    # O modelo pode encadear múltiplas rodadas de tool calls antes de responder em texto.
-    while assistant_message.tool_calls:
-        for tool_call in assistant_message.tool_calls:
-            func_name = tool_call.function.name
-            func_args = json.loads(tool_call.function.arguments)
-
-            print(f"[tool call] {func_name}({func_args})")
-
-            func = AVAILABLE_TOOLS[func_name]
-            result = func(**func_args)
-
-            # Devolvemos o resultado da tool ao modelo, associado ao mesmo tool_call.id
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": json.dumps(result, ensure_ascii=False),
-                }
-            )
-
+    while True:
         response = client.chat.completions.create(
             model=MODEL,
             messages=messages,
@@ -113,9 +91,58 @@ def send_message(messages: list) -> str:
             tool_choice="auto",
         )
         assistant_message = response.choices[0].message
-        messages.append(assistant_message)
 
-    return assistant_message.content
+        usage = response.usage
+        print(
+            f"[cache] hit={usage.prompt_cache_hit_tokens} "
+            f"miss={usage.prompt_cache_miss_tokens} "
+            f"(prompt_tokens={usage.prompt_tokens})"
+        )
+
+        if assistant_message.tool_calls:
+            # Normaliza a mensagem do assistente para o formato de dict esperado pela API,
+            # preservando os tool_calls (necessários para associar as respostas da tool a seguir).
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": assistant_message.content,
+                    "tool_calls": [
+                        {
+                            "id": tool_call.id,
+                            "type": tool_call.type,
+                            "function": {
+                                "name": tool_call.function.name,
+                                "arguments": tool_call.function.arguments,
+                            },
+                        }
+                        for tool_call in assistant_message.tool_calls
+                    ],
+                }
+            )
+
+            for tool_call in assistant_message.tool_calls:
+                func_name = tool_call.function.name
+                func_args = json.loads(tool_call.function.arguments)
+
+                print(f"[tool call] {func_name}({func_args})")
+
+                func = AVAILABLE_TOOLS[func_name]
+                result = func(**func_args)
+
+                # Devolvemos o resultado da tool ao modelo, associado ao mesmo tool_call.id
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps(result, ensure_ascii=False),
+                    }
+                )
+
+            continue  # próxima iteração chama o modelo de novo já com o resultado da tool
+
+        # Resposta final em texto: normaliza e encerra o loop.
+        messages.append({"role": "assistant", "content": assistant_message.content})
+        return assistant_message.content
 
 
 if __name__ == "__main__":
