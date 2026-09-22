@@ -25,7 +25,7 @@ client = OpenAI(
     base_url=os.environ["BASE_URL"],
 )
 
-MODEL = os.environ.get("MODEL", "deepseek-flash")
+MODEL = os.environ.get("MODEL_DEEPSEEK", "deepseek-flash")
 
 # Restrição de escopo: este prompt é sempre incluído (além de qualquer prompt de
 # sistema informado pelo usuário) para instruir o modelo a recusar perguntas fora

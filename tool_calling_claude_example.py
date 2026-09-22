@@ -22,7 +22,7 @@ load_dotenv()
 
 client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
-MODEL = os.environ.get("MODEL", "claude-opus-5")
+MODEL = os.environ.get("MODEL_CLAUDE", "claude-opus-5")
 
 # Restrição de escopo: este prompt é sempre incluído (além de qualquer prompt de
 # sistema informado pelo usuário) para instruir o modelo a recusar perguntas fora
