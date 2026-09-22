@@ -27,6 +27,17 @@ client = OpenAI(
 
 MODEL = os.environ.get("MODEL", "deepseek-flash")
 
+# Restrição de escopo: este prompt é sempre incluído (além de qualquer prompt de
+# sistema informado pelo usuário) para instruir o modelo a recusar perguntas fora
+# do tema de clima, sempre com a mesma frase fixa.
+SCOPE_SYSTEM_PROMPT = (
+    "Você é um assistente especializado exclusivamente em clima e previsão do tempo. "
+    "Responda apenas perguntas relacionadas a clima, temperatura ou condições climáticas, "
+    "usando a ferramenta get_weather quando necessário. "
+    "Se a pergunta do usuário não for sobre esse assunto, responda EXATAMENTE e apenas: "
+    "\"Não posso responder sua pergunta\" — sem nenhum texto adicional."
+)
+
 
 # ---------------------------------------------------------------------------
 # 1. Implementação real da(s) tool(s) — código Python comum.
@@ -38,7 +49,9 @@ def get_weather(city: str) -> dict:
         "rio de janeiro": {"temperatura_c": 30, "condicao": "ensolarado"},
         "curitiba": {"temperatura_c": 15, "condicao": "chuvoso"},
     }
-    dados = fake_db.get(city.strip().lower(), {"temperatura_c": 20, "condicao": "indefinido"})
+    dados = fake_db.get(city.strip().lower())
+    if dados is None:
+        return {"cidade": city, "erro": "Não foram encontradas informações para a cidade informada."}
     return {"cidade": city, **dados}
 
 
@@ -152,7 +165,7 @@ if __name__ == "__main__":
         "Prompt de sistema (opcional, pressione Enter para pular): "
     ).strip()
 
-    messages = []
+    messages = [{"role": "system", "content": SCOPE_SYSTEM_PROMPT}]
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
 
